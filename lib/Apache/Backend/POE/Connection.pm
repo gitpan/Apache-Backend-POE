@@ -5,6 +5,7 @@ use strict;
 
 use Apache::Backend::POE::Message;
 use IO::Socket::INET;
+use POSIX qw(:errno_h);
 use Carp qw(croak);
 use bytes;
 use Storable qw(nfreeze thaw);
@@ -37,11 +38,15 @@ sub connect {
 	$self->{socket} = IO::Socket::INET->new(
 		PeerAddr => $self->{host},
 		PeerPort => $self->{port},
-	);
-
-	croak "Couldn't connect to $self->{host} : $self->{port} - $!" unless defined $self->{socket};
+	) or do {
+		#croak "Couldn't connect to $self->{host} : $self->{port} - $!";
+		print STDERR "$$ Apache::Backend::POE:Connection Couldn't connect to $self->{host} : $self->{port} - $!\n";
+		return undef;
+	};
+	
 	binmode($self->{socket});
-	$self->{socket}->autoflush();
+	#$self->{socket}->autoflush(1); # default
+	$self->{socket}->blocking(0);
 
 	$self->{buffer} = "";
 	$self->{read_length} = undef;
@@ -52,6 +57,7 @@ sub connect {
         cmd => "register_service",
         svc_name => $self->{service_name}.$$,
 	}));
+	#$self->msg_read(5);
 
 	return $self;
 }
@@ -70,25 +76,29 @@ sub ping {
 			cmd => 'ping',
 			time => time(),
 	}));
+    my $prefix = "$$ Apache::Backend::POE:Connection ";
 
-	my $msg = $self->msg_read();
+	print STDERR "$prefix going to msg_read in ping()\n" if $Apache::Backend::POE::DEBUG > 1;
+	my $msg = $self->msg_read(10);
+	print STDERR "$prefix back from msg_read in ping()\n" if $Apache::Backend::POE::DEBUG > 1;
+	
 	unless (ref($msg)) {
-		print STDERR "received a non reference\n" if $Apache::Backend::POE::DEBUG;
+		print STDERR "$prefix received a non reference\n" if $Apache::Backend::POE::DEBUG;
 		return -1;
 	}
 	
 	if ($Apache::Backend::POE::DEBUG) {
-#		print STDERR "got a ".ref($msg)." package with no event()\n",return -99 unless ($msg->can('event'));
+#		print STDERR "$prefix got a ".ref($msg)." package with no event()\n",return -99 unless ($msg->can('event'));
 	}
 	
 	my $function = $msg->event();
-#	print STDERR "function: $function\n";
+#	print STDERR "$prefix function: $function\n";
 	if ($Apache::Backend::POE::DEBUG) {
-		print STDERR "no function in message\n" unless defined $function;
+		print STDERR "$prefix no function in message\n" unless defined $function;
 	}
 	return 1 if (defined $function && $function eq 'pong');
   
-	print STDERR "WRONG function received: $function\n" if $Apache::Backend::POE::DEBUG;
+	print STDERR "$prefix WRONG function received: $function\n" if $Apache::Backend::POE::DEBUG;
 	
 	return 0;
 }
@@ -101,9 +111,18 @@ sub disconnect {
 
 sub msg_read {
 	my $self = shift;
+	my $timeout = shift || undef;
+
+	# no timeout blocks indef!
+#    my $prefix = "$$ Apache::Backend::POE:Connection ";
+
+	my $st = time();
+	$st += $timeout if defined($timeout);
 	
+#	print STDERR "$prefix going into while block in msg_read()\n" if $Apache::Backend::POE::DEBUG > 1;
 	while (1) {
 		if (defined $self->{read_length}) {
+#			print STDERR "$prefix looking for msg in buffer...\n" if $Apache::Backend::POE::DEBUG > 1;
 			if (length($self->{buffer}) >= $self->{read_length}) {
 				my $message = thaw(substr($self->{buffer}, 0, $self->{read_length}, ""));
 				$self->{read_length} = undef;
@@ -112,11 +131,23 @@ sub msg_read {
 			}
 		} elsif ($self->{buffer} =~ s/^(\d+)\0//) {
 			$self->{read_length} = $1;
+#			print STDERR "$prefix got read length: $1\n" if $Apache::Backend::POE::DEBUG > 1;
 			next;
 		}
 	
-		my $octets_read = sysread($self->{socket}, $self->{buffer}, 4096, length($self->{buffer}));
-		return unless $octets_read;
+		#print STDERR "$prefix going to sysread\n" if $Apache::Backend::POE::DEBUG > 1;
+		my $rv = sysread($self->{socket}, $self->{buffer}, 4096, length($self->{buffer}));
+		if (!defined($rv) && $! == EAGAIN) {
+#			print STDERR "$prefix sysread was going to block\n" if $Apache::Backend::POE::DEBUG > 1;
+			# was going to block
+			#return if (defined($timeout) && $st > time());
+		}
+		# read $rv bytes from socket
+#		print STDERR "$prefix read $rv bytes\n" if $Apache::Backend::POE::DEBUG > 1 && defined $rv;
+		
+		if (defined($timeout)){
+			return if time() > $st;
+		}
 	}
 
 }
@@ -124,18 +155,25 @@ sub msg_read {
 sub msg_send {
 	my $self = shift;
 	my $message = shift;
+    my $prefix = "$$ Apache::Backend::POE:Connection ";
+	
+	print STDERR "$prefix socket is not connected\n" if $Apache::Backend::POE::DEBUG && !defined($self->{socket});
+	
 	$message->{send_time} = time();
 	my $streamable = nfreeze($message);
 
 	$streamable = length($streamable).chr(0).$streamable;
 	my $len = length($streamable);
+	print STDERR "$prefix sending $len bytes\n" if $Apache::Backend::POE::DEBUG > 1;
 	while ($len > 0) {
 		if (my $w = syswrite($self->{socket},$streamable,4096)) {
 			$len -= $w;
+			print STDERR "$prefix sent $w bytes\n" if $Apache::Backend::POE::DEBUG > 1;
 		} else {
 			last;
 		}
 	}
+	print STDERR "$prefix done sending\n" if $Apache::Backend::POE::DEBUG > 1;
 	#print *{$self->{socket}} $streamable;
 }
 

@@ -8,6 +8,7 @@ WriteMakefile(
     'VERSION_FROM'	=> 'lib/Apache/Backend/POE.pm', # finds $VERSION
     'PREREQ_PM'		=> {
 		'IO::Socket::INET'		=>	undef,
+		'POSIX'		=>	undef,
 		'Carp'		=>	undef,
 		'Storable'	=>	undef,
 		'Apache'	=>	undef,

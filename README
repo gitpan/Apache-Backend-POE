@@ -1,5 +1,6 @@
 NAME
-    Apache::Backend::POE - Initiate a persistent connection to a POE server
+    Apache::Backend::POE - Communicate with a POE server using persistent
+    connections
 
 SYNOPSIS
      # Configuration in httpd.conf:
@@ -8,13 +9,30 @@ SYNOPSIS
 
      # use in startup.pl
  
-     Apache::Backend::POE->connect_on_init(host => 'localhost', port => 2021, alias => 'poeky');
+     Apache::Backend::POE->connect_on_init(
+            host => 'localhost',
+            port => 2021,
+            alias => 'poeky'
+     );
+
+     # in your mod_perl script
 
      # use in mod_perl handler
-     Apache::Backend::POE->
+     my $poe = Apache::Backend::POE->connect(
+            host => 'localhost',
+            port => 2021,
+            alias => 'poeky'
+     );
+ 
+     unless (defined $poe) {
+            return SERVER_ERROR;
+     }
+
+     # use msg_send and msg_read like the example POE server
 
 DESCRIPTION
-    This module initiates a persistent connection to a POE server.
+    This module allows you to communicate with a POE server using persistent
+    connections.
 
 CONFIGURATION
     The module should be loaded upon startup of the Apache daemon. Add the
@@ -23,7 +41,7 @@ CONFIGURATION
      PerlModule Apache::Backend::POE
 
     A common usage is to load the module in a startup file via the
-    PerlRequire directive. See eg/startup.pl for an example.
+    PerlRequire directive.
 
     There are two configurations which are server-specific and which can be
     done upon server startup:
@@ -71,8 +89,9 @@ TODO
     * Authentication
     * SSL encryption
     * Rollback support
-    * Create Backend::POE module for non mod_perl applications
-    * Support for other serializers like YAML
+    * Create Backend::POE module for non mod_perl applications.
+    * Improve the documentation.
+    * Support for other serializers like YAML.
 
 BUG REPORTS
     File bug reports at:

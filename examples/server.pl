@@ -120,7 +120,7 @@ sub handle_client_input {
 	return;
  }
   
-  $response->{s_recv_time} = time();
+  $response->{srv_recv_time} = time();
 
   # Handle backend commands.
   if (my $cmd = $response->{cmd}) {
@@ -128,10 +128,14 @@ sub handle_client_input {
     # Register a service.
     if ($cmd eq "register_service") {
       my $name = lc($response->svc_name());
-#	  print "[$id] $name registered\r\n";
+	  print "[$id] $name registered\r\n";
 	  $name_to_ids{$name}{$id}++;
       $id_to_name{$id} = $name;
 	  $x->alias($id => $name);
+#	$kernel->yield(send => Apache::Backend::POE::Message->new({
+#		event => 'register',
+#		msg => 'ok',
+#	}));
       return;
     }
 
@@ -148,20 +152,25 @@ sub handle_client_input {
 	}
 
 	$x->act($id => 'unknown');
-    warn "Ignoring unknown command ``$cmd''\r\n";
-    return;
+    #warn "Ignoring unknown command ``$cmd''\r\n";
+	$kernel->yield(send => Apache::Backend::POE::Message->new({
+		event => 'error',
+		error => 'unknown command',
+	}));
+	return;
   }
 
   return unless defined $response->client();
   my $res = "res_".$response->client();
 
+	# where the resource could recieve this and respond
   $kernel->post($res => backend_response => $response);
 }
 
 sub do_send_request {
   my ($heap, $request) = @_[HEAP, ARG0];
   return unless $heap->{client};
-  $request->{ts20svrsend} = time();
+  $request->{svrsend} = time();
   $heap->{client}->put($request);
 }
 

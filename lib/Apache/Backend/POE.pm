@@ -5,7 +5,7 @@ BEGIN { eval { require Apache } }
 use Apache::Backend::POE::Connection;
 use Carp qw(carp);
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 # a lot of code used from Apache::DBI...
 
@@ -118,26 +118,27 @@ sub connect {
 	PING: {
 		if ($Connected{$Idx}) {
 			if ($needping) {
+				print STDERR "$prefix going to ping\n" if $Apache::Backend::POE::DEBUG > 1;
+				
 				my $rt = eval{ $Connected{$Idx}->ping };
-				#my $rt = $Connected{$Idx}->ping;
-				print STDERR "$prefix ping rt: ----------- $rt\n" if $Apache::Backend::POE::DEBUG;
+				
+				print STDERR "$prefix ping rt: ----------- $rt\n" if $Apache::Backend::POE::DEBUG > 1;
 				last PING unless ($rt == 1);
 				if ($@) {
 					print STDERR "$prefix ping error: $@\n" if $Apache::Backend::POE::DEBUG;
 					last PING;
 				}
 			}
-			print STDERR "$prefix already connected to '$Idx'\n" if $Apache::Backend::POE::DEBUG > 1;
+			print STDERR "$prefix using cached connection to '$Idx'\n" if $Apache::Backend::POE::DEBUG;
    			return (bless $Connected{$Idx}, 'Apache::Backend::POE::Conn');
 	    }
 	}
 
-	my $conn = Apache::Backend::POE::Connection->new(@args);
 	
     # either there is no object cached or it is not valid,
     # so get a new object and store it in the cache
     delete $Connected{$Idx};
-    $Connected{$Idx} = $conn->connect($poe);
+	$Connected{$Idx} = Apache::Backend::POE::Connection->new(@args)->connect($poe);
     return undef if !$Connected{$Idx};
 
     # return the new object
@@ -239,7 +240,7 @@ __END__
 
 =head1 NAME
 
-Apache::Backend::POE - Initiate a persistent connection to a POE server
+Apache::Backend::POE - Communicate with a POE server using persistent connections
 
 =head1 SYNOPSIS
 
@@ -249,14 +250,30 @@ Apache::Backend::POE - Initiate a persistent connection to a POE server
 
  # use in startup.pl
  
- Apache::Backend::POE->connect_on_init(host => 'localhost', port => 2021, alias => 'poeky');
+ Apache::Backend::POE->connect_on_init(
+ 	host => 'localhost',
+	port => 2021,
+	alias => 'poeky'
+ );
+
+ # in your mod_perl script
 
  # use in mod_perl handler
- Apache::Backend::POE->
+ my $poe = Apache::Backend::POE->connect(
+ 	host => 'localhost',
+	port => 2021,
+	alias => 'poeky'
+ );
+ 
+ unless (defined $poe) {
+ 	return SERVER_ERROR;
+ }
+
+ # use msg_send and msg_read like the example POE server
 
 =head1 DESCRIPTION
 
-This module initiates a persistent connection to a POE server. 
+This module allows you to communicate with a POE server using persistent connections. 
 
 =head1 CONFIGURATION
 
@@ -266,7 +283,7 @@ Add the following line to your httpd.conf or startup.pl:
  PerlModule Apache::Backend::POE
 
 A common usage is to load the module in a startup file via the PerlRequire 
-directive. See eg/startup.pl for an example. 
+directive.
 
 There are two configurations which are server-specific and which can be done 
 upon server startup: 
@@ -322,10 +339,13 @@ SSL encryption
 Rollback support
 
 =item *
-Create L<Backend::POE> module for non mod_perl applications
+Create L<Backend::POE> module for non mod_perl applications.
 
 =item *
-Support for other serializers like L<YAML>
+Improve the documentation.
+
+=item *
+Support for other serializers like L<YAML>.
 
 =head1 BUG REPORTS
 
